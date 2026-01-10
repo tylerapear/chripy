@@ -5,4 +5,5 @@ VALUES (
     NOW(),
     NOW(),
     $1
-);
+)
+RETURNING *;

@@ -5,42 +5,74 @@ import (
     "net/http"
     "strings"
     "fmt"
-)
- 
-func handle_validate_chirp(w http.ResponseWriter, r *http.Request){
+    "time"
 
-    type parameters struct {
+    "github.com/tylerapear/chirpy/internal/database"
+
+    "github.com/google/uuid"
+)
+
+func (cfg apiConfig) handle_api_chirps (w http.ResponseWriter, r *http.Request){
+
+    type chirpResponseVals struct {
+        ID uuid.UUID `json:"id"`
+        CreatedAt time.Time `json:"created_at"`
+        UpdatedAt time.Time `json:"updated_at"`
         Body string `json:"body"`
+        UserID uuid.UUID `json:"user_id"`
     }
+
+    type chirpParams struct {
+        Body string `json:"body"`
+        UserID uuid.UUID `json:"user_id"`
+    }
+
+    decoder := json.NewDecoder(r.Body)
+    params := chirpParams{}
+    err := decoder.Decode(&params)
+    if err != nil {
+        respondWithError(w, 500, fmt.Sprintf("Something went wrong: %s\n", err))
+        return
+    }
+    fmt.Printf("userid: %s\n", params.UserID)
+
+    cleaned_chirp, valid := validate_chirp(params.Body)
+    if !valid {
+        respondWithError(w, 400, "Chirp message too long")
+        return
+    }
+    
+    createChirpParams := database.CreateChirpParams{
+        Body: cleaned_chirp,
+        UserID: params.UserID,
+    }
+   
+    created_chirp, err := cfg.dbQueries.CreateChirp(r.Context(), createChirpParams)
+    if err != nil {
+        respondWithError(w, 500, fmt.Sprintf("Error creating chrip: %s", err))
+        return
+    }
+
+    respBody := chirpResponseVals{
+        ID: created_chirp.ID,
+        CreatedAt: created_chirp.CreatedAt,
+        UpdatedAt: created_chirp.UpdatedAt,
+        Body: created_chirp.Body,
+        UserID: created_chirp.UserID,
+    }
+    respondWithJSON(w, 201, respBody)
+    return
+}
  
-    type respVals struct {
-        Valid bool `json:"valid"`
-        CleanedBody string `json:"cleaned_body"`
-    }
+func validate_chirp(body string) (string, bool){
 
     const maxPostLen = 140
 
-    decoder := json.NewDecoder(r.Body)
-    params := parameters{}
-    err := decoder.Decode(&params)
-    if err != nil {
-        respondWithError(w, 500, fmt.Sprintf("Something went wrong: %s", err))
-        return
+    if len(body) <= maxPostLen {
+        return cleanProfanity(body), true
     }
-
-
-    if len(params.Body) <= maxPostLen {
-        cleanedPost := cleanProfanity(params.Body)
-        respBody := respVals{
-            Valid: true,
-            CleanedBody: cleanedPost,
-        }
-        respondWithJSON(w, 200, respBody)
-        return
-    }
-
-    respondWithError(w, 400, "Chirp message is too long")
-    return
+    
+    return body, false
         
 }
 

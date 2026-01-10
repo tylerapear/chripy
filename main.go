@@ -1,25 +1,31 @@
 package main
 
+import _ "github.com/lib/pq"
+
 import (
     "fmt"
     "net/http"
     "log"
     "sync/atomic"
+    "os"
+    "database/sql"
 
-    "github.com/lib/pq"
+    "github.com/joho/godotenv"
+    
+    "github.com/tylerapear/chirpy/internal/database"
 )
 
 type apiConfig struct {
     fileserverHits atomic.Int32
+    dbQueries *database.Queries
 }
 
 func main() {
 
     // DEFINITIONS
-    apiCfg := apiConfig{
-        fileserverHits: atomic.Int32{},
-    }
-    
+    godotenv.Load()
+    dbURL := os.Getenv("DB_URL")
+
     const port = ":8080"
     const filepathRoot = "."
 
@@ -27,6 +33,17 @@ func main() {
     server := http.Server{
         Addr: port,
         Handler: mux,
+    }
+
+    db, err := sql.Open("postgres", dbURL)
+    if err != nil {
+        fmt.Printf("Error opening database connection: %s\n", err)
+        os.Exit(1)
+    }
+
+    apiCfg := apiConfig{
+        fileserverHits: atomic.Int32{},
+        dbQueries: database.New(db),
     }
 
     // HANDLERS
@@ -40,7 +57,8 @@ func main() {
     mux.HandleFunc("GET /api/healthz", handle_api_healthz)
     mux.HandleFunc("GET /admin/metrics", apiCfg.handle_admin_metrics)
     mux.HandleFunc("POST /admin/reset", apiCfg.handle_admin_reset)
-    mux.HandleFunc("POST /api/validate_chirp", handle_validate_chirp)
+    mux.HandleFunc("POST /api/chirps", apiCfg.handle_api_chirps)
+    mux.HandleFunc("POST /api/users", apiCfg.handle_api_users)
 
     // START SERVER
     fmt.Printf("Server listening on %s and serving files from %s\n", port, filepathRoot)
