@@ -12,15 +12,36 @@ import (
     "github.com/google/uuid"
 )
 
-func (cfg apiConfig) handle_api_chirps (w http.ResponseWriter, r *http.Request){
 
-    type chirpResponseVals struct {
-        ID uuid.UUID `json:"id"`
-        CreatedAt time.Time `json:"created_at"`
-        UpdatedAt time.Time `json:"updated_at"`
-        Body string `json:"body"`
-        UserID uuid.UUID `json:"user_id"`
+type Chirp struct {
+    ID uuid.UUID `json:"id"`
+    CreatedAt time.Time `json:"created_at"`
+    UpdatedAt time.Time `json:"updated_at"`
+    Body string `json:"body"`
+    UserID uuid.UUID `json:"user_id"`
+}
+
+func (cfg apiConfig) handle_api_chirps_get (w http.ResponseWriter, r *http.Request) {
+    
+    resp, err := cfg.dbQueries.GetChirps(r.Context())
+    if err != nil {
+        respondWithError(w, 500, fmt.Sprintf("Error retrieving chirps: %s\n", err))
     }
+
+    chirps := make([]Chirp, len(resp))
+    for i, chrip := range resp{
+        chirps[i] = Chirp{
+            ID: chrip.ID,
+            CreatedAt: chrip.CreatedAt,
+            UpdatedAt: chrip.UpdatedAt,
+            Body: chrip.Body,
+            UserID: chrip.UserID,
+        }
+    }
+    respondWithJSON(w, 200, chirps)
+}
+
+func (cfg apiConfig) handle_api_chirps_post (w http.ResponseWriter, r *http.Request){
 
     type chirpParams struct {
         Body string `json:"body"`
@@ -53,7 +74,7 @@ func (cfg apiConfig) handle_api_chirps (w http.ResponseWriter, r *http.Request){
         return
     }
 
-    respBody := chirpResponseVals{
+    respBody := Chirp{
         ID: created_chirp.ID,
         CreatedAt: created_chirp.CreatedAt,
         UpdatedAt: created_chirp.UpdatedAt,

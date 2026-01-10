@@ -57,7 +57,8 @@ func main() {
     mux.HandleFunc("GET /api/healthz", handle_api_healthz)
     mux.HandleFunc("GET /admin/metrics", apiCfg.handle_admin_metrics)
     mux.HandleFunc("POST /admin/reset", apiCfg.handle_admin_reset)
-    mux.HandleFunc("POST /api/chirps", apiCfg.handle_api_chirps)
+    mux.HandleFunc("POST /api/chirps", apiCfg.handle_api_chirps_post)
+    mux.HandleFunc("GET /api/chirps", apiCfg.handle_api_chirps_get)
     mux.HandleFunc("POST /api/users", apiCfg.handle_api_users)
 
     // START SERVER
