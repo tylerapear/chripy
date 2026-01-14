@@ -8,6 +8,7 @@ import (
     "time"
 
     "github.com/tylerapear/chirpy/internal/database"
+    "github.com/tylerapear/chirpy/internal/auth"
 
     "github.com/google/uuid"
 )
@@ -22,16 +23,18 @@ type Chirp struct {
 }
 
 func (cfg apiConfig) handle_api_chirps_get_by_id (w http.ResponseWriter, r *http.Request) {
-   
+
     chirp_id_param := r.PathValue("chirpID")
     chirp_id, err := uuid.Parse(chirp_id_param)
     if err != nil {
         respondWithError(w, 400, fmt.Sprintf("Error parsing chirpID: %s\n", err))
+        return
     }
     
     resp, err := cfg.dbQueries.GetChirpById(r.Context(), chirp_id)
     if err != nil {
-        respondWithError(w, 404, fmt.Sprintf("Error retrieving chirp: %s\n", err))
+        respondWithError(w, 404, fmt.Sprintf("Cannot find chrip with ID %s", chirp_id))
+        return
     }
 
     chirp := Chirp{
@@ -52,6 +55,7 @@ func (cfg apiConfig) handle_api_chirps_get (w http.ResponseWriter, r *http.Reque
     resp, err := cfg.dbQueries.GetChirps(r.Context())
     if err != nil {
         respondWithError(w, 500, fmt.Sprintf("Error retrieving chirps: %s\n", err))
+        return
     }
 
     chirps := make([]Chirp, len(resp))
@@ -65,13 +69,13 @@ func (cfg apiConfig) handle_api_chirps_get (w http.ResponseWriter, r *http.Reque
         }
     }
     respondWithJSON(w, 200, chirps)
+    return
 }
 
 func (cfg apiConfig) handle_api_chirps_post (w http.ResponseWriter, r *http.Request){
 
     type chirpParams struct {
         Body string `json:"body"`
-        UserID uuid.UUID `json:"user_id"`
     }
 
     decoder := json.NewDecoder(r.Body)
@@ -81,7 +85,18 @@ func (cfg apiConfig) handle_api_chirps_post (w http.ResponseWriter, r *http.Requ
         respondWithError(w, 500, fmt.Sprintf("Something went wrong: %s\n", err))
         return
     }
-    fmt.Printf("userid: %s\n", params.UserID)
+    
+    token, err := auth.GetBearerToken(r.Header)
+    if err != nil {
+        respondWithError(w, 401, fmt.Sprintf("Error paring Bearer Token: %s", err))
+        return
+    }
+
+    userID, err := auth.ValidateJWT(token, cfg.jwtSecret)
+    if err != nil {
+        respondWithError(w, 401, fmt.Sprintf("Error validating token: %s", err))
+        return
+    }
 
     cleaned_chirp, valid := validate_chirp(params.Body)
     if !valid {
@@ -91,7 +106,7 @@ func (cfg apiConfig) handle_api_chirps_post (w http.ResponseWriter, r *http.Requ
     
     createChirpParams := database.CreateChirpParams{
         Body: cleaned_chirp,
-        UserID: params.UserID,
+        UserID: userID,
     }
    
     created_chirp, err := cfg.dbQueries.CreateChirp(r.Context(), createChirpParams)
@@ -110,6 +125,54 @@ func (cfg apiConfig) handle_api_chirps_post (w http.ResponseWriter, r *http.Requ
     respondWithJSON(w, 201, respBody)
     return
 }
+
+func (cfg apiConfig) handle_api_chirps_delete (w http.ResponseWriter, r *http.Request){
+    type response struct {
+        Message string `json:"message"`
+    }
+
+    token, err := auth.GetBearerToken(r.Header)
+    if err != nil {
+        respondWithError(w, 401, fmt.Sprintf("Error paring Bearer Token: %s", err))
+        return
+    }
+
+    user_id, err := auth.ValidateJWT(token, cfg.jwtSecret)
+    if err != nil {
+        respondWithError(w, 401, fmt.Sprintf("Invalid Token"))
+        return
+    }
+
+    chirp_id_param := r.PathValue("chirpID")
+    chirp_id, err := uuid.Parse(chirp_id_param)
+    if err != nil {
+        respondWithError(w, 400, fmt.Sprintf("Error parsing chirpID: %s\n", err))
+        return
+    }
+
+    chirp, err := cfg.dbQueries.GetChirpById(r.Context(), chirp_id)
+    if err != nil {
+        respondWithError(w, 404, fmt.Sprintf("Cannot find chrip with ID %s", chirp_id))
+        return
+    }
+    
+    if chirp.UserID != user_id {
+        respondWithError(w, 403, "You are not the owner of this chrip")
+        return
+    }
+
+    err = cfg.dbQueries.DeleteChirp(r.Context(), chirp.ID)
+    if err != nil {
+        respondWithError(w, 500, fmt.Sprintf("Error deleting chrip: %s", err))
+        return
+    }
+
+    respondWithJSON(w, 204, response{
+        Message: "Successfully deleted chrip.",
+    })
+    return
+
+}
  
 func validate_chirp(body string) (string, bool){
 
@@ -124,13 +187,10 @@ func validate_chirp(body string) (string, bool){
 }
 
 func cleanProfanity(post string) string {
-    fmt.Println("checking words")
     forbidden_words := []string{"kerfuffle", "sharbert", "fornax"}
-    fmt.Printf("words: %v\n", forbidden_words)
     post_words := strings.Split(post, " ")
 
     for i, word := range post_words {
-        fmt.Printf("checking if %s is in list\n", word)
         if contains(forbidden_words, strings.ToLower(word)) {
             post_words[i] = "****"
         } 
@@ -148,3 +208,4 @@ func contains (list []string, target string) bool {
     }
     return false
 }
+
