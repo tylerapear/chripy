@@ -6,6 +6,7 @@ import (
     "strings"
     "fmt"
     "time"
+    "sort"
 
     "github.com/tylerapear/chirpy/internal/database"
     "github.com/tylerapear/chirpy/internal/auth"
@@ -52,12 +53,25 @@ func (cfg apiConfig) handle_api_chirps_get_by_id (w http.ResponseWriter, r *http
 
 func (cfg apiConfig) handle_api_chirps_get (w http.ResponseWriter, r *http.Request) {
     
-    resp, err := cfg.dbQueries.GetChirps(r.Context())
-    if err != nil {
-        respondWithError(w, 500, fmt.Sprintf("Error retrieving chirps: %s\n", err))
-        return
-    }
+    var resp []database.Chirp
+    var err error
 
+    author_id := r.URL.Query().Get("author_id")
+    if author_id != "" {
+        author_uuid, err := uuid.Parse(author_id)
+        if err != nil {
+            respondWithError(w, 400, fmt.Sprintf("Invalid author_id"))
+        return
+        }
+        resp, err = cfg.dbQueries.GetChirpsByUserID(r.Context(), author_uuid)
+    } else {
+        resp, err = cfg.dbQueries.GetChirps(r.Context())
+        if err != nil {
+            respondWithError(w, 500, fmt.Sprintf("Error retrieving chirps: %s\n", err))
+            return
+        }
+    }
+    
     chirps := make([]Chirp, len(resp))
     for i, chrip := range resp{
         chirps[i] = Chirp{
@@ -68,6 +82,18 @@ func (cfg apiConfig) handle_api_chirps_get (w http.ResponseWriter, r *http.Reque
             UserID: chrip.UserID,
         }
     }
+
+    sort_order := r.URL.Query().Get("sort")
+    if sort_order == "desc" {
+        sort.Slice(chirps, func(i, j int) bool {
+            return chirps[j].CreatedAt.Before(chirps[i].CreatedAt)
+        })
+    } else {
+        sort.Slice(chirps, func(i, j int) bool {
+            return chirps[i].CreatedAt.Before(chirps[j].CreatedAt)
+        })
+    }
+
     respondWithJSON(w, 200, chirps)
     return
 }
